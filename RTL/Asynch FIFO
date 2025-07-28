@@ -1,0 +1,110 @@
+//DESIGN
+module asynch_fifo(
+  input clk_rd, clk_wr,
+  input rd_en, wr_en, rst,
+  input [7:0]wr_dat,
+  output reg [7:0]rd_dat,
+  output reg full, empty,
+  output underflow, overflow
+);
+  
+  //FIFO MEMORY AND CONTROL SIGNALS
+  reg [7:0] fifo_mem [7:0];
+  reg [3:0] rd_ptr, wr_ptr;
+  wire [3:0] gr_rd_ptr0;
+  reg [3:0] gr_rd_ptr1, gr_rd_ptr2;
+  wire [3:0] gr_wr_ptr0;
+  reg [3:0] gr_wr_ptr1, gr_wr_ptr2;
+  integer i;
+  
+  //FIFO MEMORY VISUALIZATION SIGNALS (FOR MONITORING, NO USE IN ACTUAL DUT)
+  wire [7:0] fifo0, fifo1, fifo2, fifo3, fifo4, fifo5, fifo6, fifo7;
+  
+  assign fifo0 = fifo_mem[0];
+  assign fifo1 = fifo_mem[1];
+  assign fifo2 = fifo_mem[2];
+  assign fifo3 = fifo_mem[3];
+  assign fifo4 = fifo_mem[4];
+  assign fifo5 = fifo_mem[5];
+  assign fifo6 = fifo_mem[6];
+  assign fifo7 = fifo_mem[7];
+  
+  
+  //FIFO MEMORY RESET
+  always @(posedge clk_wr) begin
+  	if (rst) begin
+      for (i = 0; i < 8; i = i + 1)begin
+        fifo_mem[i] <= 8'b0;
+      end
+    end
+  end
+  
+  
+  //READ 
+  always @(posedge clk_rd)begin
+    if(rst)begin
+      rd_ptr <= 0;
+      rd_dat <= 8'b0;
+    end
+    else if(rd_en && !empty)begin
+      rd_dat <= fifo_mem[rd_ptr[2:0]];
+      rd_ptr <= rd_ptr + 1;
+    end
+  end
+  //WRITE
+  always @(posedge clk_wr)begin
+    if(rst)begin
+      wr_ptr <= 0;
+    end
+    else if(wr_en && !full)begin
+      fifo_mem[wr_ptr[2:0]] <= wr_dat;
+      wr_ptr <= wr_ptr + 1;
+    end
+  end
+  //GRAY_CODE_GEN
+  assign gr_wr_ptr0 = wr_ptr^(wr_ptr >> 1);
+  assign gr_rd_ptr0 = rd_ptr^(rd_ptr >> 1);
+  
+  //DUAL-STAGE-SYNCH'ER
+  always @(posedge clk_rd)begin
+    if(rst)begin
+      gr_wr_ptr1 <= 0;
+      gr_wr_ptr2 <= 0;
+    end
+    else begin
+      gr_wr_ptr1 <= gr_wr_ptr0;
+      gr_wr_ptr2 <= gr_wr_ptr1;
+    end
+  end
+  
+  always @(posedge clk_wr)begin
+    if(rst)begin
+      gr_rd_ptr1 <= 0;
+      gr_rd_ptr2 <= 0;
+    end
+    else begin
+      gr_rd_ptr1 <= gr_rd_ptr0;
+      gr_rd_ptr2 <= gr_rd_ptr1;
+    end
+    
+  end
+  
+  //STATUS FLAGS
+  always @(posedge clk_wr) 
+    full <= ((gr_wr_ptr0[3:2] != gr_rd_ptr2[3:2])&&(gr_wr_ptr0[1:0] == gr_rd_ptr2[1:0]));
+  always @(negedge clk_rd)
+ 	empty <= (gr_wr_ptr2 == gr_rd_ptr0);
+  
+  //FLOW FLAGS
+  assign overflow = (full && wr_en);
+  assign underflow = (empty && rd_en);
+  
+endmodule
+
+interface fifo_if(input logic clk_wr, clk_rd, rst);
+  bit rd_en, wr_en;
+  bit [7:0]wr_dat;
+  bit [7:0]rd_dat;
+  bit full, empty;
+  bit underflow, overflow;
+endinterface
